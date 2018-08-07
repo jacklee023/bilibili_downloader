@@ -355,40 +355,12 @@ def bilibili_downloader(args, log, download_list = []):
 
 def get_up_vlist(log, mid):
     cookies = {
-        'fts': '1464849346',
-        'pgv_pvi': '8878435328',
-        'rpdid': 'iwoxwplowodopqokwomqw',
-        'LIVE_BUVID': '48c5b47103544bc092dd2bdaa5ddfc46',
-        'LIVE_BUVID__ckMd5': '1a7cf6f776b931c5',
-        '_ga': 'GA1.2.408549572.1481301753',
-        'biliMzIsnew': '1',
-        'biliMzTs': '0',
-        'buvid3': '0C526B68-68B8-4B4A-977D-F31F2655283334438infoc',
-        'UM_distinctid': '162e917cbc5a10-0ef5ce3011f0dd-393d5f0e-100200-162e917cbc67a8',
-        'finger': 'edc6ecda',
-        'sid': '7unyy8qo',
-        'DedeUserID': '93034923',
-        'DedeUserID__ckMd5': '5110398abfd5c46c',
-        'SESSDATA': '9bede676%2C1532928503%2Cc315d301',
-        'bili_jct': '99a996065364d753b3b10225c9d01d3c',
-        'im_notify_type_93034923': '0',
-        '_dfcaptcha': '5c4ebe39503c2263fed87f44db35b4bf',
-        'pgv_si': 's2929603584',
     }
 
     headers = {
-        'DNT': '1',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36',
-        'Accept': '*/*',
-        'Referer': 'https://www.bilibili.com/index.html',
-        'Connection': 'keep-alive',
     }
 
     params = (
-        ('callback', 'dynamic_total'),
-        ('jsonp', 'jsonp'),
     )
     av_dict = {}
     av_list = []
