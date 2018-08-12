@@ -7,21 +7,17 @@ import logging
 import argparse
 import time
 import json
-#import pandas
 from openpyxl import load_workbook
-from openpyxl import Workbook
 
-aid_file = "./aid_done.list"
-cid_file = "./cid_done.list"
-down_file= "./download.list"
-json_file = "./download.json" 
-fail_file = "./fail.list"
-base_out_dir = '.'
+aid_file   = "./aid_done.list"
+cid_file   = "./cid_done.list"
+down_file  = "./download.list"
+json_file  = "./download.json" 
+fail_file  = "./fail.list"
+excel_file = "./bilibili.xlsx"
 
-#excel_file = "./log.xlsx"
-in_excel= "./bilibili.xlsx"
-
-pat_filter = re.compile(r'/|\s|\x10')
+pat_filter    = re.compile(r'/|\s|\x10')
+pat_av_number = re.compile(r'^av')
 
 def dump_log(args):
     abs_cur_path = os.path.abspath(os.path.expandvars(os.path.curdir))
@@ -65,22 +61,21 @@ def dump_log(args):
             level  = level)
 
 def get_args_top():
-    #TODO 指定输出路径
     parser = argparse.ArgumentParser()
     st = "debug option"
-    parser.add_argument('-d', '--debug', default = False, action='store_true', help=st)
+    parser.add_argument('-d',   '--debug', default = False, action='store_true', help=st)
 
     st = "only print info"
-    parser.add_argument('-oi', '--only_info', default = False, action='store_true', help=st)
+    parser.add_argument('-oi',  '--only_info', default = False, action='store_true', help=st)
 
     st = "download enable"
-    parser.add_argument('-ed', '--enable_download', default = False, action='store_true', help=st)
+    parser.add_argument('-e',   '--enable_download', default = False, action='store_true', help=st)
 
     st = "download skip"
-    parser.add_argument('-es', '--enable_skip', default = False, action='store_true', help=st)
+    parser.add_argument('-s',   '--skip', default = False, action='store_true', help=st)
 
     st = "gen_download_list"
-    parser.add_argument('-gd', '--gen_download_list', default = False, action='store_true', help=st)
+    parser.add_argument('-g',   '--gen_download_list', default = False, action='store_true', help=st)
 
     st = "add mid"
     parser.add_argument('-mid', '--add_mid', default = "", help=st)
@@ -89,119 +84,141 @@ def get_args_top():
     parser.add_argument('-aid', '--add_aid', default = "", help=st)
 
     st = "set output log file"
-    parser.add_argument('-l', '--log_file', default = "", help=st)
+    parser.add_argument('-l',   '--log_file', default = "", help=st)
 
     st = "set output dir name"
-    parser.add_argument('-o', '--out_dir', default = ".", help=st)
+    parser.add_argument('-o',   '--base_dir', default = "../../../download/video", help=st)
+
+    st = "set delay time"
+    parser.add_argument('-dly', '--delay', default = 0, help=st)
+
+    st = "set retry times"
+    parser.add_argument('-t',   '--times', default = 0, help=st)
 
     args = parser.parse_args()
     return args
 
-def youget_download(cmd):
+def youget_download(cmd, log):
     try :
         info = os.system(cmd)
-        print(info)
-        return True
+        log.info(info)
     except Exception as e:
-        print(e)
+        log.info(e)
 
-def get_download_list(args, log):
-    def gen_sheet(ws, aid_list):
+def gen_download_list(args, log):
+    def gen_sheet(ws, aid_list, source):
         skip_cnt = 0
+        fail_cnt = 0
         curr_row = 1
-        curr_col = 1
-        headerList = ['', 'aid' ,'cid' ,'title' ,'flag' ,'status' ,'author' ,'created_at' ,'description' ,'page' ,'download_url' ,'output_dir' ,'output_name']
-        headerHash = {}
-        for i in range(1, len(headerList)):
-            e = headerList[i]
-            headerHash[e] = i
-            ws.cell(row = curr_row, column = i, value = e)
+
+        for col in range(1, len(aidHeaderList)):
+            ws.cell(row = curr_row, column = col, value = aidHeaderList[col])
 
         for aid in aid_list :
-            #log.debug("aid= %s "%(aid))
+            log.debug("aid= %s "%(aid))
             curr_row += 1
             #status = ws.cell(row = curr_row, column = 4).value
-            #enable_skip = True
-            #enable_skip = False
             
             status = 'done' if str(aid) in aid_done_set else 'todo'
-            ws.cell(row = curr_row, column =headerHash['status']        , value = status)
-            if status == 'done' and args.enable_skip == True:
-                #log.debug("skip %s "%(aid))
+            ws.cell(row = curr_row, column = aidHeaderHash['status'], value = status)
+            if status == 'done' and args.skip == True:
                 skip_cnt += 1
                 continue
             api = "http://api.bilibili.com/view?type=json&appkey=8e9fc618fbd41e28&id=" + str(aid) + "&batch=1"
             log.debug("get video info api is %s "%(api))
             r = requests.get(api)
             j = json.loads(r.text)
-            #log.info("json = \n%s"%j)
+            times = 1
             if 'code' in j.keys() :
+                log.warning("Download av%s Fail!"%(aid))
+                while 'code' in j.keys() and int(args.delay) > 0 and int(args.times) > 0:
+                    time.sleep(args.delay)
+                    r = requests.get(api)
+                    j = json.loads(r.text)
+                    log.warning("Download av%s Fail %d time(s)!"%(aid, times))
+                    times += 1
+                    if times > args.times:
+                        break
+
+                fa = open(fail_file, 'a')
+                fa.write("Download av%s Fail!\n"%(aid))
+                fa.write("\tapi fail   : %s\n"%(api))
+                fa.write("\tapi result : %s\n"%(j))
+                fa.close()
+
+                fail_cnt += 1
                 continue
 
-            '''
-            while 'code' in j.keys() :
-                log.info("json = \n%s"%j)
-                for i in range(10):
-                    log.info('return 403, wait %s'%i)
-                    time.sleep(1)
-                r = requests.get(api)
-                j = json.loads(r.text)
-            '''
-
             up_name = j['author']
-            title = j['title']
-            #title = re.sub('\x10' ,'', title)
-            #title = re.sub(r'/|\s','', title)
-            title = pat_filter.sub('', title)
-            #status = 'done' if str(aid) in done_set else 'todo'
-            #if "%s%s"%("av",aid) in aid_done_set:
-            ws.cell(row = curr_row, column = headerHash['aid'],         value = aid)
-            ws.cell(row = curr_row, column = headerHash['title'],       value = title)
-            ws.cell(row = curr_row, column = headerHash['author'],      value = up_name)
-            ws.cell(row = curr_row, column = headerHash['created_at'],  value = j['created_at'])
-            ws.cell(row = curr_row, column = headerHash['description'], value = j['description'])
-            ws.cell(row = curr_row, column = headerHash['page'],        value = len(j['list']))
-            if len(j['list']) > 1 :
+            title   = pat_filter.sub('', j['title'])
+            pages   = len(j['list'])
+            log.info("title = %s"%title)
+            #ws.cell(row = curr_row, column = 3 , value = title)
+            ws.cell(row = curr_row, column = aidHeaderHash['aid']           , value = aid)
+            ws.cell(row = curr_row, column = aidHeaderHash['title']         , value = title)
+            ws.cell(row = curr_row, column = aidHeaderHash['author']        , value = up_name)
+            ws.cell(row = curr_row, column = aidHeaderHash['page']          , value = pages)
+            ws.cell(row = curr_row, column = aidHeaderHash['created_at']    , value = j['created_at'])
+            ws.cell(row = curr_row, column = aidHeaderHash['description']   , value = j['description'])
+            if pages > 1 :
+                ws.row_dimensions.group(curr_row + 1, curr_row + pages, hidden = True)
+                
                 for e in j['list']:
                     curr_row += 1
                     cid = e['cid']
                     status = 'done' if str(cid) in cid_done_set else 'todo'
 
-                    ws.cell(row = curr_row, column = 5, value = status)
-                    if status == 'done' and args.enable_skip == True:
-                        continue
-
                     url = "https://www.bilibili.com/video/av%s/index_%s.html"%(aid, e['page'])
-                    output_dir = "%s/%s/%s"%(base_out_dir, up_name, title )
-                    output_name= pat_filter.sub('', e['part'].strip())
-                    ws.cell(row = curr_row, column =headerHash['cid']           , value = cid)
-                    ws.cell(row = curr_row, column =headerHash['title']         , value = e['part'])
-                    ws.cell(row = curr_row, column =headerHash['author']        , value = up_name)
-                    ws.cell(row = curr_row, column =headerHash['page']          , value = e['page'])
-                    ws.cell(row = curr_row, column =headerHash['download_url']  , value = url)
-                    ws.cell(row = curr_row, column =headerHash['output_dir']    , value = output_dir)
-                    ws.cell(row = curr_row, column =headerHash['output_name']   , value = output_name)
-                    flag = ws.cell(row = curr_row, column =headerHash['flag']).value
+                    if source == 'aid' :
+                        output_dir = "%s/%s/%s"%(args.base_dir, 'other', title )
+                    else : # source == 'mid'
+                        output_dir = "%s/%s/%s"%(args.base_dir, up_name, title )
+                    if not os.path.exists(output_dir) :
+                        os.makedirs(output_dir) 
+                    output_name = pat_filter.sub('', e['part'].strip())
+                    ws.cell(row = curr_row, column = aidHeaderHash['aid']           , value = "")
+                    ws.cell(row = curr_row, column = aidHeaderHash['cid']           , value = cid)
+                    ws.cell(row = curr_row, column = aidHeaderHash['title']         , value = e['part'])
+                    ws.cell(row = curr_row, column = aidHeaderHash['author']        , value = up_name)
+                    ws.cell(row = curr_row, column = aidHeaderHash['flag']          , value = 'ON')
+                    ws.cell(row = curr_row, column = aidHeaderHash['status']        , value = status)
+                    ws.cell(row = curr_row, column = aidHeaderHash['page']          , value = e['page'])
+                    ws.cell(row = curr_row, column = aidHeaderHash['created_at']    , value = "")
+                    ws.cell(row = curr_row, column = aidHeaderHash['description']   , value = "")
+                    ws.cell(row = curr_row, column = aidHeaderHash['download_url']  , value = url)
+                    ws.cell(row = curr_row, column = aidHeaderHash['output_dir']    , value = output_dir)
+                    ws.cell(row = curr_row, column = aidHeaderHash['output_name']   , value = output_name)
+                    flag = ws.cell(row = curr_row, column = aidHeaderHash['flag']).value
                     flag = True if flag is not None and str(flag) != 'OFF' else False
-                    if status != 'done':
-                        log.info("append video %s -> '%s' by %s"%(aid, title, up_name))
+                    if status == 'done' and args.skip == True:
+                        skip_cnt += 1
+                        continue
+                    else : #if status != 'done':
+                        log.info("append video %10s/%10s -> '%s' by %s"%(aid, cid, title, up_name))
                         download_list.append((url, output_dir, output_name, aid, cid, flag))
             else :
                 url = "https://www.bilibili.com/video/av%s"%(aid)
-                output_dir  = "%s/%s"%(base_out_dir, up_name)
+                if source == 'aid' :
+                    output_dir  = "%s/%s"%(args.base_dir, 'other')
+                else :
+                    output_dir  = "%s/%s"%(args.base_dir, up_name)
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir) 
                 output_name = pat_filter.sub('', title)
                 cid = j['list'][0]['cid']
-                ws.cell(row = curr_row, column =headerHash['cid']           , value = cid)
-                ws.cell(row = curr_row, column =headerHash['download_url']  , value = url)
-                ws.cell(row = curr_row, column =headerHash['output_dir']    , value = output_dir)
-                ws.cell(row = curr_row, column =headerHash['output_name']   , value = output_name)
+                ws.cell(row = curr_row, column = aidHeaderHash['cid']           , value = cid)
+                ws.cell(row = curr_row, column = aidHeaderHash['flag']          , value = 'ON')
+                ws.cell(row = curr_row, column = aidHeaderHash['download_url']  , value = url)
+                ws.cell(row = curr_row, column = aidHeaderHash['output_dir']    , value = output_dir)
+                ws.cell(row = curr_row, column = aidHeaderHash['output_name']   , value = output_name)
 
-                flag = ws.cell(row = curr_row, column =headerHash['flag']).value
+                flag = ws.cell(row = curr_row, column = aidHeaderHash['flag']).value
                 flag = True if flag is not None and str(flag) != 'OFF' else False
                 if status != 'done':
-                    log.info("append video %s -> '%s' by %s"%(aid, title, up_name))
+                    log.info("append video %10s/%10s -> '%s' by %s"%(aid, cid, title, up_name))
                     download_list.append((url, output_dir, output_name, aid, cid, flag))
-        return (skip_cnt, download_list) 
+
+        return (skip_cnt, fail_cnt, download_list) 
         
     def get_done_set(filename):
         if not os.path.exists(filename) :
@@ -218,74 +235,100 @@ def get_download_list(args, log):
         ws = wb[sheetname]
         mid_list = []
         for curr_row in range(2, ws.max_row + 1):
-            cell_value = ws.cell(row = curr_row, column = 1).value
-            enable = ws.cell(row = curr_row, column = 2).value
-            if cell_value is not None and str(enable) == 'enable':
-                mid_list.append(cell_value)
+            mid    = ws.cell(row = curr_row, column = midHeaderHash['mid']).value
+            enable = ws.cell(row = curr_row, column = midHeaderHash['enable']).value
+            if mid is not None and str(enable) == 'ON':
+                log.debug("mid = %s"%mid)
+                mid_list.append(mid)
 
-        log.info("total up number is %s"%len(mid_list))
+        log.info("The total number of up(s) is %s"%len(mid_list))
         return ws, mid_list
 
     def get_aid_list(sheetname):
         ws = wb[sheetname]
         aid_list = []
         for curr_row in range(2, ws.max_row + 1):
-            cell_value = ws.cell(row = curr_row, column = 1).value
-            if cell_value is not None :
-                aid = pat_av_number.sub('', cell_value.strip())
+            aid = ws.cell(row = curr_row, column = aidHeaderHash['aid']).value
+            #log.info("aid = '%s'"%aid)
+            if aid is not None :
+                aid = pat_av_number.sub('', aid.strip())
                 log.debug("aid = '%s'"%aid)
                 aid_list.append(aid)
-        log.info("total video number is %s"%len(aid_list))
+        log.info("The total number of video(s) is %s"%len(aid_list))
         return ws, aid_list
 
+    def initHeaderList(List):
+        Hash = {}
+        for i in range(1, len(List)):
+            e = List[i]
+            Hash[e] = i
+        return Hash
+
     download_list = []
+    aidHeaderList = ['', 'aid', 'cid', 'title', 'flag', 'status', 'author', 'created_at', 'description', 'page', 'download_url', 'output_dir', 'output_name']
+    midHeaderList = ['', 'mid', 'enable', 'author', '投稿数', '已下载', '下载失败', '待下载']
+    aidHeaderHash = initHeaderList(aidHeaderList)
+    midHeaderHash = initHeaderList(midHeaderList)
 
-    pat_av_number = re.compile(r'^av')
-
-    wb = load_workbook(in_excel)
+    wb = load_workbook(excel_file)
 
     aid_done_set = get_done_set(aid_file)
     cid_done_set = get_done_set(cid_file)
-    #log.debug(aid_done_set)
+
+    ws, aid_list = get_aid_list('aid')
+    log.info("aid_list:%s"%aid_list)
+    skip_cnt, fail_cnt, download_list = gen_sheet(ws, aid_list, 'aid')
+    log.info("skip/fail/total %3d/ %3d/ %3d"%(skip_cnt, fail_cnt, len(aid_list)))
 
     ws, mid_list = get_mid_list('mid')
-    ws, aid_list = get_aid_list('aid')
-    gen_sheet(ws, aid_list)
+    log.info("mid_list:%s"%mid_list)
 
-    #log.debug("mid list : %s"%mid_list)
-
-    #mid_list = [] # debug
-    curr_row = 2
+    curr_row = 1
     for mid in mid_list :
-        log.info("curr mid is %s"%(mid))
+        curr_row += 1
+        #midHeaderList = ['', 'mid', 'enable', 'author', '投稿数', '已下载', '下载失败', '待下载']
+        #log.info("curr_row = %s"%curr_row)
+        todo_cnt = ws.cell(row = curr_row, column = midHeaderHash['待下载']).value
+        #todo_cnt = ws.cell(row = curr_row, column = 6).value
+        log.info("mid %s ; todo_cnt %s"%(mid, todo_cnt))
+        skip = True if todo_cnt == 0 else False
+        #skip = True if todo_cnt is not None and todo_cnt != 0 else False
+        if skip == True and args.skip:
+        #if skip == True :
+            log.info("skip %s"%mid)
+            continue
         av_dict, av_list, up_name = get_up_vlist(log, mid)
+        log.info("up_name %s"%up_name)
         if up_name not in wb.sheetnames:
             ws = wb.create_sheet()
+            log.info("create sheet : %s"%up_name)
             ws.title = up_name
         else :
             #wb.remove_sheet(up_name)
             #ws = wb.create_sheet()
             #ws.title = up_name
             ws = wb[up_name]
-        skip_cnt, download_list = gen_sheet(ws, av_list)
+        skip_cnt, fail_cnt, download_list = gen_sheet(ws, av_list, 'mid')
+        av_cnt = len(av_list)
 
         ws = wb['mid']
-        ws.cell(row = curr_row, column = 1, value = mid)
-        ws.cell(row = curr_row, column = 3, value = up_name)
-        ws.cell(row = curr_row, column = 4, value = len(av_list))
-        ws.cell(row = curr_row, column = 5, value = skip_cnt)
-        curr_row += 1
-
-        log.info("skip/total %s/%s"%(skip_cnt, len(av_list)))
         
-    wb.save(in_excel)
+        ws.cell(row = curr_row, column = midHeaderHash['mid']     , value = mid)
+        ws.cell(row = curr_row, column = midHeaderHash['enable']  , value = 'ON')
+        ws.cell(row = curr_row, column = midHeaderHash['author']  , value = up_name)
+        ws.cell(row = curr_row, column = midHeaderHash['投稿数']  , value = av_cnt)
+        ws.cell(row = curr_row, column = midHeaderHash['已下载']  , value = skip_cnt)
+        ws.cell(row = curr_row, column = midHeaderHash['下载失败'], value = fail_cnt)
+        ws.cell(row = curr_row, column = midHeaderHash['待下载']  , value = av_cnt - skip_cnt - fail_cnt)
 
-    log.info("total %s video(s) to download"%len(download_list))
+        log.info("skip/fail/total %3d/ %3d/ %3d"%(skip_cnt, fail_cnt, av_cnt))
+        
+    wb.save(excel_file)
 
-    #for e in download_list :
-    #    log.info("av%s\t%s"%(e[3], e[4]))
+    log.info("There are %d video(s) to be downloaded"%len(download_list))
 
     download_json = json.dumps(download_list)
+
     fw = open(json_file, 'w')
     fw.write(download_json)
     fw.close()
@@ -338,9 +381,9 @@ def bilibili_downloader(args, log, download_list = []):
 
         if args.enable_download :
             refresh_download_list(i)
-            youget_download(down_cmd)
+            youget_download(down_cmd, log)
             flag = os.path.isfile(os.path.join(output_dir, "%s.%s"%(output_name, 'flv')))
-            if flag == True:    #TODO 判断下载成功
+            if flag == True:
                 fa = open(aid_file, 'a')
                 fa.write('av%s \n'%(aid))
                 fa.close()
@@ -350,7 +393,7 @@ def bilibili_downloader(args, log, download_list = []):
                 fa.close()
             else :
                 fa = open(fail_file, 'a')
-                fa.write("av %s/%s %s.flv not found at %s"%(aid, cid, output_name, output_dir))
+                fa.write("Download Fail! av %s/%s %s.flv not found at %s\n"%(aid, cid, output_name, output_dir))
                 fa.close()
 
 def get_up_vlist(log, mid):
@@ -358,20 +401,19 @@ def get_up_vlist(log, mid):
     }
 
     headers = {
-    }
 
     params = (
     )
-    av_dict = {}
-    av_list = []
-    page_size = 100
-    page = 1
-    av_cnt = None
+    av_dict     = {}
+    av_list     = []
+    page_size   = 100
+    page        = 1
+    av_cnt      = None
     while True:
         url = "http://space.bilibili.com/ajax/member/getSubmitVideos?mid=%s&pagesize=%s&page=%s"%(mid, page_size, page)
         log.debug("get up info api is %s"%url)
-        response = requests.get(url, headers=headers, params=params, cookies=cookies)
-        j = json.loads(response.text)
+        r   = requests.get(url, headers=headers, params=params, cookies=cookies)
+        j   = json.loads(r.text)
         for e in j['data']['vlist'] :
             log.debug("%10s : %s"%(e['aid'], e['title']))
             av_dict[e['aid']] = e['title']
@@ -380,7 +422,7 @@ def get_up_vlist(log, mid):
         up_name = e['author']
 
         if av_cnt == None:
-            av_cnt = j['data']['count']
+            av_cnt  = j['data']['count']
             page    += 1
         elif av_cnt > 0:
             av_cnt  -= page_size
@@ -393,23 +435,26 @@ def main():
     args = get_args_top()
     dump_log(args)
     log = logging
+    if os.path.exists(fail_file):
+        os.remove(fail_file)
+
     if args.gen_download_list :
-        get_download_list(args, log)
+        gen_download_list(args, log)
 
     if args.enable_download or args.only_info :
         bilibili_downloader(args, log)
 
     if args.add_aid is not None:
-        wb = load_workbook(in_excel)
+        wb = load_workbook(excel_file)
         ws = wb['aid']
         ws.cell(row = ws.max_row + 1, column = 1, value = args.add_aid)
-        wb.save(in_excel)
+        wb.save(excel_file)
 
     if args.add_mid is not None:
-        wb = load_workbook(in_excel)
+        wb = load_workbook(excel_file)
         ws = wb['mid']
         ws.cell(row = ws.max_row + 1, column = 1, value = args.add_mid)
-        wb.save(in_excel)
+        wb.save(excel_file)
 
 if __name__ == '__main__':
 
